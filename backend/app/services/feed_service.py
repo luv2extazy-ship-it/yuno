@@ -149,7 +149,7 @@ class FeedService:
                 duration_ms=s["duration_ms"],
                 artwork_url=s["artwork"],
                 source="spotify",
-                stream_url=f"/api/v1/stream?track_id={tid}"
+                stream_url=f"/api/v1/stream/{tid}"
             ))
 
         # 2. SoundCloud Tracks
@@ -169,7 +169,13 @@ class FeedService:
                     duration_ms = int(duration * 1000) if duration else 0
                     thumbs = entry.get("thumbnails", [])
                     artwork = thumbs[-1].get("url") if thumbs else None
-                    tid = f"yn_sc_{url}"
+                    import re
+                    num_id = entry.get("id")
+                    if not num_id and url:
+                        m = re.search(r'\d{6,}', str(url))
+                        if m:
+                            num_id = m.group(0)
+                    tid = f"yn_sc_{num_id}" if num_id else f"yn_sc_{url}"
                     soundcloud_tracks.append(TrackItem(
                         id=tid,
                         title=title,
@@ -178,7 +184,7 @@ class FeedService:
                         duration_ms=duration_ms,
                         artwork_url=artwork,
                         source="soundcloud",
-                        stream_url=f"/api/v1/stream?track_id={tid}"
+                        stream_url=f"/api/v1/stream/{tid}"
                     ))
         except Exception:
             pass
@@ -205,7 +211,7 @@ class FeedService:
                     duration_ms=0,
                     artwork_url=artwork_url,
                     source="youtube",
-                    stream_url=f"/api/v1/stream?track_id={tid}"
+                    stream_url=f"/api/v1/stream/{tid}"
                 ))
         except Exception:
             pass
@@ -280,7 +286,7 @@ class FeedService:
                     duration_ms=0,
                     artwork_url=artwork_url,
                     source="youtube",
-                    stream_url=f"/api/v1/stream?track_id={tid}"
+                    stream_url=f"/api/v1/stream/{tid}"
                 ))
             return tracks
         except Exception:

@@ -52,7 +52,15 @@ class ApiService extends ChangeNotifier {
   }
 
   String getStreamUrl(String trackId) {
-    return '$_baseUrl/api/v1/stream?track_id=${Uri.encodeComponent(trackId)}';
+    if (trackId.startsWith('yn_sc_')) {
+      final raw = trackId.replaceFirst('yn_sc_', '');
+      final match = RegExp(r'\d{6,}').firstMatch(raw);
+      if (match != null) {
+        return '$_baseUrl/api/v1/stream/yn_sc_${match.group(0)}';
+      }
+    }
+    final safeId = trackId.replaceAll('/', '_');
+    return '$_baseUrl/api/v1/stream/$safeId';
   }
 
   // --- AUTH ---

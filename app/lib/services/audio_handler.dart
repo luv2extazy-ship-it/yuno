@@ -90,26 +90,56 @@ class YunoAudioHandler extends BaseAudioHandler with SeekHandler, ChangeNotifier
       _currentIndex = 0;
     }
 
-    final fullStreamUrl = ApiService().getStreamUrl(track.id);
+    final api = ApiService();
+    final baseUrl = api.baseUrl;
 
-    // Update system notification MediaItem
-    final item = MediaItem(
-      id: track.id,
-      title: track.title,
-      artist: track.artist,
-      album: track.album ?? 'Yuno Music',
-      duration: track.durationMs > 0 ? Duration(milliseconds: track.durationMs) : null,
-      artUri: track.artworkUrl != null ? Uri.parse(track.artworkUrl!) : null,
-    );
-    mediaItem.add(item);
-    notifyListeners();
+    // Collect stream candidates to try in order
+    final List<String> candidateUrls = [];
+    candidateUrls.add(api.getStreamUrl(track.id));
+    candidateUrls.add('$baseUrl/api/v1/stream?track_id=${Uri.encodeComponent(track.id)}');
 
-    try {
-      await _player.setUrl(fullStreamUrl);
-      await _player.play();
-      ApiService().recordHistory(track);
-    } catch (e) {
-      debugPrint('Playback error for ${track.id}: $e');
+    if (track.id.startsWith('yn_sc_')) {
+      final raw = track.id.replaceFirst('yn_sc_', '');
+      final match = RegExp(r'\d{6,}').firstMatch(raw);
+      if (match != null) {
+        candidateUrls.insert(0, '$baseUrl/api/v1/stream/yn_sc_${match.group(0)}');
+      }
+    }
+
+    bool started = false;
+    for (final url in candidateUrls.toSet()) {
+      try {
+        debugPrint('[Yuno] Loading stream: $url');
+        await _player.setUrl(url);
+        await _player.play();
+        started = true;
+        api.recordHistory(track);
+        break;
+      } catch (e) {
+        debugPrint('[Yuno] Candidate stream failed ($url): $e');
+      }
+    }
+
+    // Ultimate fallback: if direct stream fails, search alternate playable version
+    if (!started) {
+      try {
+        debugPrint('[Yuno] Searching audio fallback for "${track.artist} - ${track.title}"');
+        final alts = await api.search('${track.artist} ${track.title}');
+        for (final alt in alts) {
+          if (alt.id != track.id) {
+            final altUrl = api.getStreamUrl(alt.id);
+            try {
+              debugPrint('[Yuno] Trying fallback stream: $altUrl');
+              await _player.setUrl(altUrl);
+              await _player.play();
+              started = true;
+              break;
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        debugPrint('[Yuno] Fallback search error: $e');
+      }
     }
   }
 

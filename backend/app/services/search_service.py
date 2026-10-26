@@ -64,7 +64,14 @@ class SearchService:
                     thumbnails = entry.get('thumbnails', [])
                     artwork = thumbnails[-1].get('url') if thumbnails else None
 
-                    track_id = f"yn_sc_{url}"
+                    import re
+                    num_id = entry.get('id')
+                    if not num_id and url:
+                        m = re.search(r'\d{6,}', str(url))
+                        if m:
+                            num_id = m.group(0)
+                    track_id = f"yn_sc_{num_id}" if num_id else f"yn_sc_{url}"
+
                     tracks.append(TrackItem(
                         id=track_id,
                         title=title,
@@ -73,7 +80,7 @@ class SearchService:
                         duration_ms=duration_ms,
                         artwork_url=artwork,
                         source="soundcloud",
-                        stream_url=f"/api/v1/stream?track_id={track_id}"
+                        stream_url=f"/api/v1/stream/{track_id}"
                     ))
                 return tracks
         except Exception:
@@ -108,7 +115,7 @@ class SearchService:
                     duration_ms=duration_ms,
                     artwork_url=artwork_url,
                     source="youtube",
-                    stream_url=f"/api/v1/stream?track_id={track_id}"
+                    stream_url=f"/api/v1/stream/{track_id}"
                 ))
             return tracks
         except Exception:
