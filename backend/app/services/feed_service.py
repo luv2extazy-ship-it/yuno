@@ -1,3 +1,4 @@
+import time
 import asyncio
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
@@ -104,10 +105,17 @@ SPOTIFY_GLOBAL_HITS = [
     },
 ]
 
+# Fast fallback YouTube tracks for instant load
+YT_RU_PRESET = [
+    {"id": "yn_yt_BLZWkjBXfN8", "title": "In The End", "artist": "Linkin Park", "album": "Hybrid Theory", "artwork": "https://i.ytimg.com/vi/BLZWkjBXfN8/hqdefault.jpg"},
+    {"id": "yn_yt_9bZkp7q19f0", "title": "Gangnam Style", "artist": "PSY", "album": "Psy 6 (Six Rules)", "artwork": "https://i.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg"},
+    {"id": "yn_yt_fJ9rUzIMcZQ", "title": "Bohemian Rhapsody", "artist": "Queen", "album": "A Night at the Opera", "artwork": "https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg"},
+]
+
 class FeedService:
     def __init__(self):
         self._ytmusic = None
-        self._cache = {}
+        self._cache = {}  # key -> {"data": FeedResponse, "time": timestamp}
 
     def _get_ytmusic(self) -> YTMusic:
         if self._ytmusic is None:
@@ -115,11 +123,17 @@ class FeedService:
         return self._ytmusic
 
     async def get_home_feed(self, country: str = "RU", lang: str = "ru") -> FeedResponse:
+        cache_key = f"{country}_{lang}"
+        cached = self._cache.get(cache_key)
+        if cached and (time.time() - cached["time"] < 900):  # 15 minutes cache
+            return cached["data"]
+
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._build_home_feed, country.upper(), lang.lower())
+        res = await loop.run_in_executor(None, self._build_home_feed, country.upper(), lang.lower())
+        self._cache[cache_key] = {"data": res, "time": time.time()}
+        return res
 
     def _build_home_feed(self, country: str, lang: str) -> FeedResponse:
-        yt = self._get_ytmusic()
         is_ru = country in ("RU", "BY", "KZ", "UA", "CIS") or lang.startswith("ru")
 
         # 1. Spotify Tracks (Curated popular hits)
@@ -138,11 +152,11 @@ class FeedService:
                 stream_url=f"/api/v1/stream?track_id={tid}"
             ))
 
-        # 2. SoundCloud Tracks (Trending rap / electronic / phonk)
+        # 2. SoundCloud Tracks
         soundcloud_tracks: List[TrackItem] = []
         try:
-            query = "русский чарт топ" if is_ru else "top electronic hits"
-            ydl_opts = {'quiet': True, 'extract_flat': True, 'socket_timeout': 4}
+            query = "русский рэп чарт" if is_ru else "top electronic hits"
+            ydl_opts = {'quiet': True, 'extract_flat': True, 'socket_timeout': 3}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"scsearch8:{query}", download=False)
                 for entry in info.get("entries", []):
@@ -169,13 +183,13 @@ class FeedService:
         except Exception:
             pass
 
-        # 3. YouTube Music Tracks (Charts for specific geo)
+        # 3. YouTube Music Tracks
         yt_tracks: List[TrackItem] = []
         try:
-            yt_country = "RU" if is_ru else country
-            charts = yt.get_charts(country=yt_country)
+            yt = self._get_ytmusic()
+            charts = yt.get_charts(country="RU" if is_ru else country)
             videos = charts.get("videos", {}).get("items", []) or charts.get("tracks", {}).get("items", [])
-            for item in videos[:12]:
+            for item in videos[:10]:
                 vid = item.get("videoId")
                 if not vid:
                     continue
@@ -196,31 +210,18 @@ class FeedService:
         except Exception:
             pass
 
-        # Fallback for YouTube if charts empty:
         if not yt_tracks:
-            try:
-                search_query = "Русские хиты 2026 чарт" if is_ru else "Top Global Hits 2026"
-                res = yt.search(search_query, filter="songs", limit=10)
-                for item in res:
-                    vid = item.get("videoId")
-                    if not vid:
-                        continue
-                    artists = ", ".join([a.get("name", "") for a in item.get("artists", [])]) or "Top Hits"
-                    thumbs = item.get("thumbnails", [])
-                    artwork_url = thumbs[-1].get("url") if thumbs else None
-                    tid = f"yn_yt_{vid}"
-                    yt_tracks.append(TrackItem(
-                        id=tid,
-                        title=item.get("title", "Unknown"),
-                        artist=artists,
-                        album="Trending Hits",
-                        duration_ms=0,
-                        artwork_url=artwork_url,
-                        source="youtube",
-                        stream_url=f"/api/v1/stream?track_id={tid}"
-                    ))
-            except Exception:
-                pass
+            for p in YT_RU_PRESET:
+                yt_tracks.append(TrackItem(
+                    id=p["id"],
+                    title=p["title"],
+                    artist=p["artist"],
+                    album=p["album"],
+                    duration_ms=0,
+                    artwork_url=p["artwork"],
+                    source="youtube",
+                    stream_url=f"/api/v1/stream?track_id={p['id']}"
+                ))
 
         # 4. Create Interleaved Mixed Trending List (Spotify + YouTube + SoundCloud)
         trending: List[TrackItem] = []
