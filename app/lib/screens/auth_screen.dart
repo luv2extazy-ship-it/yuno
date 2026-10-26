@@ -59,7 +59,7 @@ class _AuthScreenState extends State<AuthScreen> {
         );
       } else {
         setState(() {
-          _errorMessage = _isLogin ? 'Неверный email или пароль' : 'Ошибка регистрации (возможно, email уже занят)';
+          _errorMessage = api.lastError ?? (_isLogin ? 'Неверный email или пароль' : 'Ошибка регистрации');
         });
       }
     }

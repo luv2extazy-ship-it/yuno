@@ -45,6 +45,30 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
 
+@router.get("/debug-db")
+async def debug_db(db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import text
+    try:
+        res = await db.execute(text("SELECT 1"))
+        scalar = res.scalar()
+        # Also check User table
+        users_count = await db.execute(select(User))
+        total_users = len(users_count.scalars().all())
+        return {
+            "status": "connected",
+            "scalar": scalar,
+            "total_users": total_users,
+            "db_url": settings.get_database_url()[:25] + "..."
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "db_url": settings.get_database_url()[:25] + "..."
+        }
+
 @router.post("/register", response_model=TokenResponse)
 async def register(req: UserRegister, db: AsyncSession = Depends(get_db)):
     # Check if exists
@@ -60,12 +84,15 @@ async def register(req: UserRegister, db: AsyncSession = Depends(get_db)):
     )
     db.add(new_user)
     await db.commit()
-    await db.refresh(new_user)
+    
+    stmt = select(User).where(User.id == new_user.id)
+    res = await db.execute(stmt)
+    user_db = res.scalar_one()
 
-    token = create_access_token(new_user.id)
+    token = create_access_token(user_db.id)
     return TokenResponse(
         access_token=token,
-        user=UserResponse(id=new_user.id, email=new_user.email, username=new_user.username, avatar_url=new_user.avatar_url)
+        user=UserResponse(id=user_db.id, email=user_db.email, username=user_db.username, avatar_url=user_db.avatar_url)
     )
 
 @router.post("/login", response_model=TokenResponse)

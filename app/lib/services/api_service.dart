@@ -15,6 +15,7 @@ class ApiService extends ChangeNotifier {
   String _baseUrl = '';
   String? _token;
   UserProfile? _currentUser;
+  String? lastError;
 
   String get baseUrl => _baseUrl;
   String? get token => _token;
@@ -57,12 +58,14 @@ class ApiService extends ChangeNotifier {
   // --- AUTH ---
 
   Future<bool> register(String email, String username, String password) async {
+    lastError = null;
     try {
       final res = await http.post(
         Uri.parse('$_baseUrl/api/v1/auth/register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email, 'username': username, 'password': password}),
-      );
+      ).timeout(const Duration(seconds: 12));
+      
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         _token = data['access_token'];
@@ -71,20 +74,30 @@ class ApiService extends ChangeNotifier {
         await prefs.setString('auth_token', _token!);
         notifyListeners();
         return true;
+      } else {
+        try {
+          final errData = jsonDecode(res.body);
+          lastError = errData['detail'] ?? 'Ошибка сервера (${res.statusCode})';
+        } catch (_) {
+          lastError = 'Ошибка сервера (${res.statusCode})';
+        }
       }
     } catch (e) {
+      lastError = 'Таймаут или ошибка сети: $e';
       debugPrint('Register error: $e');
     }
     return false;
   }
 
   Future<bool> login(String email, String password) async {
+    lastError = null;
     try {
       final res = await http.post(
         Uri.parse('$_baseUrl/api/v1/auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email, 'password': password}),
-      );
+      ).timeout(const Duration(seconds: 12));
+      
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         _token = data['access_token'];
@@ -93,8 +106,16 @@ class ApiService extends ChangeNotifier {
         await prefs.setString('auth_token', _token!);
         notifyListeners();
         return true;
+      } else {
+        try {
+          final errData = jsonDecode(res.body);
+          lastError = errData['detail'] ?? 'Ошибка входа (${res.statusCode})';
+        } catch (_) {
+          lastError = 'Ошибка входа (${res.statusCode})';
+        }
       }
     } catch (e) {
+      lastError = 'Таймаут или ошибка сети: $e';
       debugPrint('Login error: $e');
     }
     return false;
