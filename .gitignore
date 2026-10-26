@@ -1,0 +1,21 @@
+# Python & Backend
+backend/.venv/
+backend/cache/
+backend/*.db
+backend/__pycache__/
+*.pyc
+
+# Flutter & App
+app/.dart_tool/
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/android/.gradle/
+app/android/local.properties
+
+# IDE & OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
