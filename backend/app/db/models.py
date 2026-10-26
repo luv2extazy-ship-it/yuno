@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Boolean, Text
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Boolean, Text, func
 from sqlalchemy.orm import relationship
 from app.db.session import Base
 
@@ -15,7 +15,7 @@ class User(Base):
     username = Column(String(100), nullable=False)
     hashed_password = Column(String(255), nullable=False)
     avatar_url = Column(String(500), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), default=lambda: datetime.now(timezone.utc))
 
     playlists = relationship("Playlist", back_populates="owner", cascade="all, delete-orphan", lazy="selectin")
     favorites = relationship("Favorite", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
@@ -31,8 +31,8 @@ class Playlist(Base):
     description = Column(Text, nullable=True)
     cover_url = Column(String(500), nullable=True)
     is_public = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     owner = relationship("User", back_populates="playlists")
     tracks = relationship("PlaylistTrack", back_populates="playlist", cascade="all, delete-orphan", order_by="PlaylistTrack.position", lazy="selectin")
@@ -68,7 +68,7 @@ class Favorite(Base):
     duration_ms = Column(Integer, default=0)
     artwork_url = Column(String(500), nullable=True)
     source = Column(String(50), default="unknown")
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="favorites")
 
@@ -85,6 +85,6 @@ class History(Base):
     duration_ms = Column(Integer, default=0)
     artwork_url = Column(String(500), nullable=True)
     source = Column(String(50), default="unknown")
-    played_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    played_at = Column(DateTime(timezone=True), server_default=func.now(), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="history")

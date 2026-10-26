@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
 from app.db.session import get_db
-from app.db.models import User
+from app.db.models import User, generate_uuid
+from app.core.config import settings
 from app.core.security import hash_password, verify_password, create_access_token, decode_access_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -77,22 +78,20 @@ async def register(req: UserRegister, db: AsyncSession = Depends(get_db)):
     if res.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="User with this email already exists")
 
+    user_id = generate_uuid()
     new_user = User(
+        id=user_id,
         email=req.email,
         username=req.username,
         hashed_password=hash_password(req.password)
     )
     db.add(new_user)
     await db.commit()
-    
-    stmt = select(User).where(User.id == new_user.id)
-    res = await db.execute(stmt)
-    user_db = res.scalar_one()
 
-    token = create_access_token(user_db.id)
+    token = create_access_token(user_id)
     return TokenResponse(
         access_token=token,
-        user=UserResponse(id=user_db.id, email=user_db.email, username=user_db.username, avatar_url=user_db.avatar_url)
+        user=UserResponse(id=user_id, email=req.email, username=req.username, avatar_url=None)
     )
 
 @router.post("/login", response_model=TokenResponse)

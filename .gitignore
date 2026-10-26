@@ -19,3 +19,6 @@ app/android/local.properties
 *.iml
 .DS_Store
 Thumbs.db
+
+# Build artifacts
+apk/

@@ -24,6 +24,22 @@ async def get_db():
         finally:
             await session.close()
 
+from sqlalchemy import text
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Safe migration if table exists in PostgreSQL with naive timestamps
+        db_url = settings.get_database_url()
+        if "postgres" in db_url:
+            for query in [
+                "ALTER TABLE users ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE;",
+                "ALTER TABLE playlists ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE;",
+                "ALTER TABLE playlists ALTER COLUMN updated_at TYPE TIMESTAMP WITH TIME ZONE;",
+                "ALTER TABLE favorites ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE;",
+                "ALTER TABLE history ALTER COLUMN played_at TYPE TIMESTAMP WITH TIME ZONE;",
+            ]:
+                try:
+                    await conn.execute(text(query))
+                except Exception:
+                    pass

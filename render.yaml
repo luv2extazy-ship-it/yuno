@@ -1,6 +1,7 @@
 services:
   - type: web
     name: yuno-backend
+    autoDeploy: true
     env: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
