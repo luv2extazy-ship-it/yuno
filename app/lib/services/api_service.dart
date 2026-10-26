@@ -26,11 +26,8 @@ class ApiService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _token = prefs.getString('auth_token');
 
-    // Auto-detect base URL based on platform
-    String defaultUrl = 'http://127.0.0.1:8000';
-    if (!kIsWeb && Platform.isAndroid) {
-      defaultUrl = 'http://10.0.2.2:8000';
-    }
+    // Production Render backend as default
+    const String defaultUrl = 'https://yuno-backend-je37.onrender.com';
     _baseUrl = prefs.getString('backend_url') ?? defaultUrl;
 
     if (_token != null) {
