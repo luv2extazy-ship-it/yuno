@@ -19,39 +19,132 @@ class StreamService:
         safe_id = hashlib.md5(track_id.encode()).hexdigest()
         return self.cache_dir / f"{safe_id}.mp3"
 
+    def _search_and_resolve_sc(self, query: str) -> Tuple[Optional[str], Optional[int]]:
+        """
+        Searches SoundCloud for the query, iterates entries, and returns the first playable stream URL (skipping DRM tracks).
+        """
+        ydl_search_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,
+            'socket_timeout': 6,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_search_opts) as ydl:
+                info = ydl.extract_info(f"scsearch5:{query}", download=False)
+                entries = info.get('entries', []) if info else []
+                for entry in entries:
+                    if not entry:
+                        continue
+                    url = entry.get('url') or entry.get('webpage_url')
+                    if not url:
+                        continue
+                    try:
+                        stream_opts = {
+                            'format': 'bestaudio/best',
+                            'noplaylist': True,
+                            'quiet': True,
+                            'no_warnings': True,
+                            'socket_timeout': 6,
+                        }
+                        with yt_dlp.YoutubeDL(stream_opts) as stream_ydl:
+                            s_info = stream_ydl.extract_info(url, download=False)
+                            if s_info and s_info.get('url'):
+                                return s_info.get('url'), s_info.get('duration')
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        return None, None
+
     def get_source_url(self, track_id: str) -> Tuple[str, Optional[int]]:
         """
         Resolves direct audio stream URL and approximate duration via yt-dlp.
         Supports:
-        - yn_yt_<id> (YouTube / YouTube Music)
-        - yn_sc_<url> (SoundCloud)
+        - yn_sp_<query> (Spotify matching to SoundCloud/YT)
+        - yn_yt_<id> (YouTube / YouTube Music with SoundCloud fallback)
+        - yn_sc_<url> (SoundCloud with DRM auto-skip)
         - raw youtube / soundcloud URL
         """
-        target = track_id
+        # 1. Spotify track: query-based audio matching
+        if track_id.startswith("yn_sp_"):
+            query = track_id.replace("yn_sp_", "")
+            stream_url, dur = self._search_and_resolve_sc(query)
+            if stream_url:
+                return stream_url, dur
+            raise HTTPException(status_code=404, detail="Audio stream not found for Spotify track")
+
+        # 2. SoundCloud track
+        if track_id.startswith("yn_sc_"):
+            sc_target = track_id.replace("yn_sc_", "")
+            target = sc_target if sc_target.startswith("http") else f"https://api.soundcloud.com/tracks/{sc_target}"
+            try:
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'noplaylist': True,
+                    'quiet': True,
+                    'no_warnings': True,
+                    'socket_timeout': 6,
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(target, download=False)
+                    if info and info.get('url'):
+                        return info.get('url'), info.get('duration')
+            except Exception:
+                pass
+            
+            # Fallback search if direct SC track hit DRM
+            query = sc_target.replace("https://api.soundcloud.com/tracks/", "").replace("https://soundcloud.com/", "").replace("-", " ")
+            stream_url, dur = self._search_and_resolve_sc(query)
+            if stream_url:
+                return stream_url, dur
+            raise HTTPException(status_code=404, detail="SoundCloud audio stream unavailable")
+
+        # 3. YouTube track
         if track_id.startswith("yn_yt_"):
             video_id = track_id.replace("yn_yt_", "")
             target = f"https://www.youtube.com/watch?v={video_id}"
-        elif track_id.startswith("yn_sc_"):
-            sc_id = track_id.replace("yn_sc_", "")
-            target = sc_id if sc_id.startswith("http") else f"https://api.soundcloud.com/tracks/{sc_id}"
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'noplaylist': True,
+                'quiet': True,
+                'no_warnings': True,
+                'socket_timeout': 6,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'ios', 'web_embedded']
+                    }
+                }
+            }
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(target, download=False)
+                    if info and info.get('url'):
+                        return info.get('url'), info.get('duration')
+            except Exception as yt_err:
+                # If YouTube fails on datacenter IP, fallback to SoundCloud audio search!
+                title = None
+                try:
+                    with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True, 'socket_timeout': 4}) as flat_ydl:
+                        flat_info = flat_ydl.extract_info(target, download=False)
+                        if flat_info:
+                            title = flat_info.get('title')
+                except Exception:
+                    pass
 
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'noplaylist': True,
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-        }
+                if title:
+                    stream_url, dur = self._search_and_resolve_sc(title)
+                    if stream_url:
+                        return stream_url, dur
+                raise HTTPException(status_code=404, detail=f"YouTube audio stream unavailable: {str(yt_err)}")
 
+        # 4. Raw URL
+        ydl_opts = {'format': 'bestaudio/best', 'noplaylist': True, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(target, download=False)
-            if not info:
-                raise HTTPException(status_code=404, detail="Audio stream not found")
-            
-            # Prefer direct audio stream url
-            stream_url = info.get('url')
-            duration = info.get('duration')
-            return stream_url, duration
+            info = ydl.extract_info(track_id, download=False)
+            if info and info.get('url'):
+                return info.get('url'), info.get('duration')
+        raise HTTPException(status_code=404, detail="Audio stream not found")
 
     async def get_stream_response(self, track_id: str, request: Request) -> Response:
         cache_file = self._get_cache_path(track_id)

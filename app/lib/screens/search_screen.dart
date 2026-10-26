@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/audio_handler.dart';
 import '../models/track.dart';
@@ -21,6 +22,57 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isLoading = false;
   List<Track> _allResults = [];
   String _selectedFilter = 'Все';
+  List<String> _searchHistory = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList('search_history') ?? [];
+    if (mounted) {
+      setState(() => _searchHistory = list);
+    }
+  }
+
+  Future<void> _saveHistory(String query) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final list = List<String>.from(_searchHistory);
+    list.remove(clean);
+    list.insert(0, clean);
+    if (list.length > 12) {
+      list.removeRange(12, list.length);
+    }
+
+    await prefs.setStringList('search_history', list);
+    if (mounted) {
+      setState(() => _searchHistory = list);
+    }
+  }
+
+  Future<void> _deleteHistoryItem(String query) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = List<String>.from(_searchHistory);
+    list.remove(query);
+    await prefs.setStringList('search_history', list);
+    if (mounted) {
+      setState(() => _searchHistory = list);
+    }
+  }
+
+  Future<void> _clearHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('search_history');
+    if (mounted) {
+      setState(() => _searchHistory = []);
+    }
+  }
 
   @override
   void dispose() {
@@ -37,7 +89,8 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _performSearch(String query) async {
-    if (query.trim().isEmpty) {
+    final clean = query.trim();
+    if (clean.isEmpty) {
       setState(() {
         _allResults = [];
         _isLoading = false;
@@ -45,8 +98,9 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
+    _saveHistory(clean);
     setState(() => _isLoading = true);
-    final results = await ApiService().search(query);
+    final results = await ApiService().search(clean);
     if (mounted) {
       setState(() {
         _allResults = results;
@@ -91,6 +145,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: TextField(
                   controller: _searchController,
                   onChanged: _onSearchChanged,
+                  onSubmitted: _performSearch,
                   autofocus: false,
                   style: const TextStyle(color: Colors.white, fontSize: 15),
                   decoration: InputDecoration(
@@ -113,7 +168,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-            // Filter Tabs
+            // Filter Tabs (only when search has results)
             if (_allResults.isNotEmpty)
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -149,44 +204,100 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
 
-            // Results List
+            // Content Area: Results, History, or Empty state
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-                  : _filteredResults.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                _searchController.text.isEmpty ? LucideIcons.search : LucideIcons.frown,
-                                size: 48,
-                                color: AppColors.textMuted,
+                  : _searchController.text.isNotEmpty
+                      ? _filteredResults.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(LucideIcons.frown, size: 48, color: AppColors.textMuted),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'По вашему запросу ничего не найдено',
+                                    style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                _searchController.text.isEmpty
-                                    ? 'Найдите треки из Spotify, SoundCloud и YouTube'
-                                    : 'По вашему запросу ничего не найдено',
-                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.only(bottom: 90),
-                          itemCount: _filteredResults.length,
-                          itemBuilder: (context, index) {
-                            final track = _filteredResults[index];
-                            return TrackTile(
-                              track: track,
-                              isPlaying: currentPlayingTrack?.id == track.id,
-                              onTap: () {
-                                audioHandler.playTrack(track, queue: _filteredResults);
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.only(bottom: 90),
+                              itemCount: _filteredResults.length,
+                              itemBuilder: (context, index) {
+                                final track = _filteredResults[index];
+                                return TrackTile(
+                                  track: track,
+                                  isPlaying: currentPlayingTrack?.id == track.id,
+                                  onTap: () {
+                                    audioHandler.playTrack(track, queue: _filteredResults);
+                                  },
+                                );
                               },
-                            );
-                          },
-                        ),
+                            )
+                      : _searchHistory.isNotEmpty
+                          ? ListView(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'История поиска',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: _clearHistory,
+                                      child: const Text(
+                                        'Очистить',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                ..._searchHistory.map((item) {
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const Icon(LucideIcons.history, size: 18, color: AppColors.textSecondary),
+                                    title: Text(
+                                      item,
+                                      style: const TextStyle(fontSize: 15, color: Colors.white),
+                                    ),
+                                    trailing: IconButton(
+                                      icon: const Icon(LucideIcons.x, size: 16, color: AppColors.textSecondary),
+                                      onPressed: () => _deleteHistoryItem(item),
+                                    ),
+                                    onTap: () {
+                                      _searchController.text = item;
+                                      _performSearch(item);
+                                    },
+                                  );
+                                }),
+                              ],
+                            )
+                          : Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(LucideIcons.search, size: 48, color: AppColors.textMuted),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'Найдите треки из Spotify, SoundCloud и YouTube',
+                                    style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                                  ),
+                                ],
+                              ),
+                            ),
             ),
           ],
         ),

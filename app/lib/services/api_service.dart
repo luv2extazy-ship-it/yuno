@@ -52,7 +52,7 @@ class ApiService extends ChangeNotifier {
   }
 
   String getStreamUrl(String trackId) {
-    return '$_baseUrl/api/v1/stream/$trackId';
+    return '$_baseUrl/api/v1/stream?track_id=${Uri.encodeComponent(trackId)}';
   }
 
   // --- AUTH ---
@@ -149,10 +149,12 @@ class ApiService extends ChangeNotifier {
 
   // --- FEED & SEARCH ---
 
-  Future<Map<String, dynamic>> getFeed() async {
+  Future<Map<String, dynamic>> getFeed({String? country}) async {
     try {
+      final geo = country ?? PlatformDispatcher.instance.locale.countryCode ?? 'RU';
+      final lang = PlatformDispatcher.instance.locale.languageCode;
       final res = await http.get(
-        Uri.parse('$_baseUrl/api/v1/feed'),
+        Uri.parse('$_baseUrl/api/v1/feed?country=$geo&lang=$lang'),
         headers: _headers(),
       );
       if (res.statusCode == 200) {

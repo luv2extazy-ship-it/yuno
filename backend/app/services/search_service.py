@@ -73,7 +73,7 @@ class SearchService:
                         duration_ms=duration_ms,
                         artwork_url=artwork,
                         source="soundcloud",
-                        stream_url=f"/api/v1/stream/{track_id}"
+                        stream_url=f"/api/v1/stream?track_id={track_id}"
                     ))
                 return tracks
         except Exception:
@@ -108,7 +108,7 @@ class SearchService:
                     duration_ms=duration_ms,
                     artwork_url=artwork_url,
                     source="youtube",
-                    stream_url=f"/api/v1/stream/{track_id}"
+                    stream_url=f"/api/v1/stream?track_id={track_id}"
                 ))
             return tracks
         except Exception:

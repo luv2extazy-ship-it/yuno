@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import 'main_screen.dart';
@@ -16,8 +17,34 @@ class _AuthScreenState extends State<AuthScreen> {
   final _emailController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _rememberPassword = true;
   bool _isLoading = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString('saved_email');
+    final savedPassword = prefs.getString('saved_password');
+    final remember = prefs.getBool('remember_password') ?? true;
+
+    if (mounted) {
+      setState(() {
+        _rememberPassword = remember;
+        if (savedEmail != null && savedEmail.isNotEmpty) {
+          _emailController.text = savedEmail;
+        }
+        if (remember && savedPassword != null && savedPassword.isNotEmpty) {
+          _passwordController.text = savedPassword;
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -54,9 +81,22 @@ class _AuthScreenState extends State<AuthScreen> {
     if (mounted) {
       setState(() => _isLoading = false);
       if (success) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const MainScreen()),
-        );
+        final prefs = await SharedPreferences.getInstance();
+        if (_rememberPassword) {
+          await prefs.setString('saved_email', email);
+          await prefs.setString('saved_password', password);
+          await prefs.setBool('remember_password', true);
+        } else {
+          await prefs.remove('saved_email');
+          await prefs.remove('saved_password');
+          await prefs.setBool('remember_password', false);
+        }
+
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MainScreen()),
+          );
+        }
       } else {
         setState(() {
           _errorMessage = api.lastError ?? (_isLogin ? 'Неверный email или пароль' : 'Ошибка регистрации');
@@ -82,7 +122,7 @@ class _AuthScreenState extends State<AuthScreen> {
               controller: urlController,
               style: const TextStyle(color: Colors.white, fontSize: 14),
               decoration: const InputDecoration(
-                hintText: 'http://10.0.2.2:8000 или http://IP:8000',
+                hintText: 'https://yuno-backend-je37.onrender.com',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -228,7 +268,37 @@ class _AuthScreenState extends State<AuthScreen> {
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
+
+                // Remember Password Checkbox
+                Row(
+                  children: [
+                    SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: Checkbox(
+                        value: _rememberPassword,
+                        activeColor: AppColors.primary,
+                        checkColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        onChanged: (val) {
+                          setState(() => _rememberPassword = val ?? true);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() => _rememberPassword = !_rememberPassword);
+                      },
+                      child: const Text(
+                        'Запомнить пароль',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
 
                 // Submit Button
                 SizedBox(

@@ -4,6 +4,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../services/audio_handler.dart';
 import '../services/api_service.dart';
+import '../models/lyrics.dart';
+import '../models/track.dart';
 import '../theme/app_colors.dart';
 import '../widgets/source_badge.dart';
 import 'lyrics_screen.dart';
@@ -17,6 +19,39 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen> {
   bool _isFavorite = false;
+  LyricsData? _lyricsData;
+  bool _isLoadingLyrics = false;
+  String? _lastLoadedTrackId;
+
+  void _checkAndLoadLyrics(Track track) {
+    if (_lastLoadedTrackId == track.id) return;
+    _lastLoadedTrackId = track.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadLyrics(track));
+  }
+
+  Future<void> _loadLyrics(Track track) async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingLyrics = true;
+      _lyricsData = null;
+    });
+    try {
+      final data = await ApiService().getLyrics(
+        track.title,
+        track.artist,
+        album: track.album,
+        durationS: track.durationMs > 0 ? (track.durationMs ~/ 1000) : null,
+      );
+      if (mounted && _lastLoadedTrackId == track.id) {
+        setState(() {
+          _lyricsData = data;
+          _isLoadingLyrics = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingLyrics = false);
+    }
+  }
 
   String _formatDuration(Duration d) {
     final minutes = d.inMinutes;
@@ -36,6 +71,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         body: const Center(child: Text('Нет активного трека')),
       );
     }
+
+    _checkAndLoadLyrics(track);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -277,7 +314,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
               const Spacer(flex: 1),
 
-              // Karaoke Lyrics Preview Bar
+              // Spotify-style Live Karaoke Card
               GestureDetector(
                 onTap: () {
                   Navigator.of(context).push(
@@ -289,28 +326,111 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
-                    color: AppColors.surfaceElevated,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.border),
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.primaryDark.withValues(alpha: 0.5),
+                        AppColors.surfaceElevated,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
                   ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Icon(LucideIcons.mic2, size: 20, color: AppColors.primary),
-                          SizedBox(width: 12),
-                          Text(
-                            'Караоке субтитры',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
+                          Row(
+                            children: [
+                              const Icon(LucideIcons.mic2, size: 16, color: AppColors.primaryLight),
+                              const SizedBox(width: 8),
+                              Text(
+                                _lyricsData?.synced == true ? 'СИНХРОНИЗИРОВАННЫЙ ТЕКСТ' : 'ТЕКСТ ПЕСНИ',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.1,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
                           ),
+                          const Icon(LucideIcons.maximize2, size: 15, color: AppColors.textSecondary),
                         ],
                       ),
-                      Icon(LucideIcons.chevronRight, size: 18, color: AppColors.textSecondary),
+                      const SizedBox(height: 10),
+                      StreamBuilder<Duration>(
+                        stream: audioHandler.positionStream,
+                        builder: (context, snapshot) {
+                          if (_isLoadingLyrics) {
+                            return const Text(
+                              'Поиск текста песни...',
+                              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                            );
+                          }
+                          if (_lyricsData == null || (_lyricsData!.lines.isEmpty && (_lyricsData!.plainLyrics == null || _lyricsData!.plainLyrics!.isEmpty))) {
+                            return const Text(
+                              'Нажмите для просмотра караоке',
+                              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                            );
+                          }
+                          if (_lyricsData!.synced && _lyricsData!.lines.isNotEmpty) {
+                            final currentMs = (snapshot.data ?? Duration.zero).inMilliseconds;
+                            int activeIdx = -1;
+                            for (int i = 0; i < _lyricsData!.lines.length; i++) {
+                              if (currentMs >= _lyricsData!.lines[i].timestampMs) {
+                                activeIdx = i;
+                              } else {
+                                break;
+                              }
+                            }
+                            final activeLine = activeIdx >= 0 ? _lyricsData!.lines[activeIdx].text : _lyricsData!.lines.first.text;
+                            final nextLine = (activeIdx + 1 < _lyricsData!.lines.length)
+                                ? _lyricsData!.lines[activeIdx + 1].text
+                                : '';
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  activeLine.isNotEmpty ? activeLine : '♪',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    height: 1.3,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (nextLine.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    nextLine,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white.withValues(alpha: 0.5),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
+                            );
+                          } else {
+                            return Text(
+                              _lyricsData!.plainLyrics ?? 'Текст песни',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            );
+                          }
+                        },
+                      ),
                     ],
                   ),
                 ),
